@@ -37,7 +37,7 @@ int eventId = 0;
 boolean isProcessEvent = false;
 // voltage
 int lastGetVoltage = 0;
-
+int count = 4; 
 //Radar Imports 
 import processing.serial.*;
 
@@ -147,7 +147,7 @@ void setup() {
   
   smooth();
   //HERE
-  myPort = new Serial(this, "COM7", 9600);
+  myPort = new Serial(this, "COM6", 9600);
   myPort.bufferUntil('.'); 
   
   setControlP5();
@@ -179,8 +179,6 @@ void draw() {
   }  
   getVoltage();
   processEvent();
-  
-
   
 }
 
@@ -235,12 +233,21 @@ void setControlP5() {
 
 void setControlP5TabTelemetry() {
   cp5.addButton("TelemetryButton")
-    .setId(201)
+    .setId(400)
     .setLabel("Begin Telemetry") // Set button label
     .setPosition(20, 150) // Set button position
     .setSize(150, 30) // Set button size
     .moveTo("Telemetry")
     .getCaptionLabel().align(CENTER, CENTER); // Align button label
+    
+   cp5.addButton("TelemetryButton1")
+    .setId(401)
+    .setLabel("Stop Telemetry") // Set button label
+    .setPosition(20, 200) // Set button position
+    .setSize(150, 30) // Set button size
+    .moveTo("Telemetry")
+    .getCaptionLabel().align(CENTER, CENTER); // Align button label
+  
 }
 
 void setControlP5Tab() {
@@ -921,6 +928,7 @@ public void processEvent(int id) {
     int zRotate = (int)cp5.getController("zRotate").getValue();
     if(xMoveLast != xMove || yMoveLast != yMove || zMoveLast != zMove || xRotateLast != xRotate || yRotateLast != yRotate || zRotateLast != zRotate)
       controlRobot.TwistBody(xMove, yMove, zMove, xRotate, yRotate, zRotate);
+      
     xMoveLast = xMove;
     yMoveLast = yMove;
     zMoveLast = zMove;
@@ -928,9 +936,17 @@ public void processEvent(int id) {
     yRotateLast = yRotate;
     zRotateLast = zRotate;
     break;
-
-    // tab Calibration
-    // move leg
+    
+    //HERE 
+    case(400): 
+       while(iDistance > 20){
+          controlRobot.CrawlForward();
+          delay(2000); // Wait for 2 seconds
+          controlRobot.CrawlForward(); 
+          delay(2000); 
+       }
+    case(401):
+      delay(2000); 
     case(402):
     controlRobot.MoveLeg((int)(cp5.getGroup("radioButton2").getValue()), 0, dL, 0);
     break;

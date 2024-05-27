@@ -37,7 +37,7 @@ int eventId = 0;
 boolean isProcessEvent = false;
 // voltage
 int lastGetVoltage = 0;
-int count = 4; 
+
 //Radar Imports 
 import processing.serial.*;
 
@@ -46,6 +46,16 @@ String angle = "";
 String distance = "";
 int iAngle, iDistance;
 PFont orcFont;
+
+//pH & moisture
+float[] moistureData = new float[600];
+float[] pHData = new float[600];
+int maxDataPoints = 600;
+int dataPointIndex = 0;
+boolean newData = false;
+float moistureLevel = 0;
+float pHLevel = 0;
+String crop = "";
 
 
 void drawRadar() {
@@ -106,9 +116,11 @@ void drawText() {
   text("30cm", 610, 460);  // Adjusted position
   text("40cm", 660, 460);  // Adjusted position
   textSize(20);  // Adjusted text size
+  
   text("Object: " + noObject, 160, 540);  // Adjusted position
   text("Angle: " + iAngle + " °", 365, 540);  // Adjusted position
   text("Distance: " + iDistance + " cm", 515, 540);  // Adjusted position
+  
   textSize(14);  // Adjusted text size
   fill(98, 245, 60);
   translate(326 + 325 * cos(radians(30)), 242 - 325 * sin(radians(30)));  // Adjusted position
@@ -133,6 +145,255 @@ void drawText() {
   popMatrix();
 }
 
+void drawMoisture_pH(){
+  text("Moisture Level: " + nf(moistureLevel, 0, 2) + "%", width/2, 195);
+
+  // Display "Moisture in range" below the moisture level
+  boolean withinMoistureRange = checkMoistureInRange(crop, moistureLevel);
+  fill(withinMoistureRange ? color(0, 255, 0) : color(255, 0, 0)); // Green when in range, red when not
+  text(withinMoistureRange ? "Moisture in range" : "Moisture out of range", width/2, 210);
+  
+  // Display pH level
+  fill(255);
+  text("pH Level: " + nf(pHLevel, 0, 2), width/2, 240);
+
+  // Display "pH in range" or "pH out of range" below the pH level
+  boolean withinpHRange = checkpHInRange(crop, pHLevel);
+  fill(withinpHRange ? color(0, 255, 0) : color(255, 0, 0)); // Green when in range, red when not
+  text(withinpHRange ? "pH in range" : "pH out of range", width/2, 255);
+
+
+  // Display title for moisture graph
+  fill(255);
+  textSize(20);
+  textAlign(CENTER);
+  text("_____________________________________________________________________________", width/2, 280);
+  text("Moisture Percentage", width / 4, 320); // Adjusted title position
+
+  // Display title for pH graph
+  fill(255);
+  textSize(20);
+  textAlign(CENTER);
+  text("pH Value", width * 3/4, 320); // Adjusted title position
+
+  // Draw the moisture graph axes
+  drawMoistureAxes();
+
+  // Draw the pH graph axes
+  drawpHAxes();
+
+  // Draw the data points and connect them with lines for moisture graph
+  drawMoistureDataPoints();
+
+  // Draw the data points and connect them with lines for pH graph
+  drawpHDataPoints();
+
+  // Display time and y-value on hover for moisture graph
+  displayMoistureHoverInfo();
+
+  // Display time and y-value on hover for pH graph
+  displaypHHoverInfo();
+  
+  textSize(20);
+     text("Crop:", width/2-125, 160); // Position the label to the left of the text box
+
+    // Display user input text box centered relative to the label
+    fill(255); // Set text color to white
+    textSize(16);
+    textAlign(CENTER, CENTER); // Center align text
+   // rectMode(CENTER);
+    rect(width/2-85, 135, 250, 40, 10); // Centered based on canvas width relative to the label
+    fill(0); // Set text color to black
+    // Draw text within the text box, centered
+    text(crop.substring(0, min(crop.length(), 20)), width/2+30, 155);
+}
+
+// Function to draw grid lines and numbers on moisture graph axes
+void drawMoistureAxes() {
+  // Draw y-axis for moisture graph
+  stroke(255);
+  line(50, height - 280, 50, height - 30); // Adjusted y-axis position
+  textAlign(RIGHT, CENTER);
+  textSize(12);
+  for (int i = 0; i <= 10; i++) {
+    float y = map(i * 10, 0, 100, height - 30, height - 280);
+    line(45, y, 55, y);
+    fill(255); // Set text color to white
+    text((i * 10), 40, y);
+  }
+  // Label y-axis for moisture graph
+  textAlign(CENTER, CENTER);
+  textSize(14);
+  rotate(-HALF_PI);
+  for (int i = 0; i <= 10; i++) {
+    float yLabel = map(i * 10, 0, 100, height - 30, height - 280);
+    fill(255); // Set text color to white
+    text(i * 10 + "%", 20, yLabel); // Adjusted label position
+  }
+  rotate(HALF_PI);
+
+  // Draw x-axis for moisture graph
+  line(50, height - 30, width / 2 - 50, height - 30);
+  textAlign(CENTER);
+  textSize(12);
+  int interval = 60; // One minute interval
+  for (int i = 0; i < (width / 2 - 100); i += interval) {
+    line(50 + i, height - 25, 50 + i, height - 35);
+    fill(255); // Set text color to white
+   // text((i / interval) + " min", 50 + i, height - 30);
+  }
+  // Label x-axis for moisture graph
+  textAlign(CENTER);
+  textSize(14);
+  text("Time", (width / 4-150) + (width / 2 - 100) / 2, height - 10);
+}
+
+// Function to draw data points for moisture graph
+void drawMoistureDataPoints() {
+  noFill();
+  stroke(255); // Set line color to white
+  beginShape();
+  // Determine the index of the first visible data point
+  int startIndex = max(0, dataPointIndex - (width / 2 - 100));
+  for (int i = startIndex; i < dataPointIndex; i++) {
+    float x = map(i, startIndex, dataPointIndex - 1, 50, (width / 2) - 50);
+    float y = map(moistureData[i], 1, 100, height - 30, height - 280);
+    vertex(x, y);
+  }
+  endShape();
+}
+
+// Function to display time and y-value on hover for moisture graph
+void displayMoistureHoverInfo() {
+  for (int i = 0; i < dataPointIndex; i++) {
+    float x = map(i, 1, dataPointIndex - 1, 50, (width / 2) - 50);
+    float y = map(moistureData[i], 1, 100, height - 30, height - 280);
+    if (dist(mouseX, mouseY, x, y) < 6) {
+      fill(255);
+      textAlign(LEFT);
+      textSize(14);
+      text("Time: " + (i * 60/62*8/10) + " sec", mouseX + 10, mouseY - 20);
+      text("Moisture: " + moistureData[i] + "%", mouseX + 10, mouseY);
+      textAlign(CENTER);
+      return;
+    }
+  }
+}
+
+// Function to draw grid lines and numbers on pH graph axes
+void drawpHAxes() {
+  // Draw y-axis for pH graph
+  stroke(255);
+  line(width / 2 + 50, height - 280, width / 2 + 50, height - 30); // Adjusted y-axis position for pH graph
+  textAlign(RIGHT, CENTER);
+  textSize(12);
+  for (int i = 0; i <= 14; i++) { // pH scale from 0 to 14
+    float y = map(i, 0, 14, height - 30, height - 280);
+    line(width / 2 + 45, y, width / 2 + 55, y);
+    fill(255); // Set text color to white
+    text(i, width / 2 + 40, y);
+  }
+  // Label y-axis for pH graph
+  textAlign(CENTER, CENTER);
+  textSize(14);
+  rotate(-HALF_PI);
+  for (int i = 0; i <= 14; i++) { // pH scale from 0 to 14
+    float yLabel = map(i, 0, 14, height - 30, height - 280);
+    fill(255); // Set text color to white
+    text(i, width / 2 + 20, yLabel); // Adjusted label position for pH graph
+  }
+  rotate(HALF_PI);
+
+  // Draw x-axis for pH graph
+  line(width / 2 + 50, height - 30, width - 50, height - 30);
+  textAlign(CENTER);
+  textSize(12);
+  int interval = 60; // One minute interval
+  for (int i = 0; i < (width / 2 - 100); i += interval) {
+    line(width / 2 + 50 + i, height - 25, width / 2 + 50 + i, height - 35);
+    fill(255); // Set text color to white
+ //   text((i / interval) + " min", width / 2 + 50 + i, height - 30);
+  }
+  // Label x-axis for pH graph
+  textAlign(CENTER);
+  textSize(14);
+  text("Time", width / 2 + 50 + (width / 2 - 100) / 2, height - 10);
+}
+
+// Function to draw data points for pH graph
+void drawpHDataPoints() {
+  noFill();
+  stroke(255); // Set line color to white
+  beginShape();
+  // Determine the index of the first visible data point
+  int startIndex = max(0, dataPointIndex - (width / 2 - 100));
+  for (int i = startIndex; i < dataPointIndex; i++) {
+    float x = map(i, startIndex, dataPointIndex - 1, width / 2 + 50, width - 50);
+    float y = map(pHData[i], 14, 0, height - 280, height - 30); // Adjusted pH mapping
+    vertex(x, y);
+  }
+  endShape();
+}
+
+// Function to display time and y-value on hover for pH graph
+void displaypHHoverInfo() {
+  for (int i = 0; i < dataPointIndex; i++) {
+    float x = map(i, 0, dataPointIndex - 1, width / 2 + 50, width - 50);
+    float y = map(pHData[i], 0, 14, height - 30, height - 280);
+    if (dist(mouseX, mouseY, x, y) < 6) {
+      fill(255);
+      textAlign(LEFT);
+      textSize(14);
+      text("Time: " + (i * 60/62*8/10) + " sec", mouseX + 10, mouseY - 20);
+      text("pH: " + pHData[i], mouseX + 10, mouseY);
+      textAlign(CENTER);
+      return;
+    }
+  }
+}
+
+// Function to check if moisture level is in range for a specific crop
+boolean checkMoistureInRange(String crop, float moistureLevel) {
+  boolean withinRange = false;
+  if (crop.equalsIgnoreCase("potato")) {
+    withinRange = (moistureLevel >= 70 && moistureLevel <= 80);
+  }
+  if (crop.equalsIgnoreCase("tomato")) {
+    withinRange = (moistureLevel >= 60 && moistureLevel <= 80);
+  }
+  if (crop.equalsIgnoreCase("broccoli")) {
+    withinRange = (moistureLevel >= 65 && moistureLevel <= 75);
+  }
+  if (crop.equalsIgnoreCase("cucumber")) {
+    withinRange = (moistureLevel >= 80 && moistureLevel <= 85);
+  }
+  if (crop.equalsIgnoreCase("bellpepper")) {
+    withinRange = (moistureLevel >= 60 && moistureLevel <= 70);
+  }
+  return withinRange;
+}
+
+// Function to check if pH level is in range for a specific crop
+boolean checkpHInRange(String crop, float pHLevel) {
+  boolean withinRange = false;
+  if (crop.equalsIgnoreCase("potato")) {
+    withinRange = (pHLevel >= 6.0 && pHLevel <= 6.5);
+  }
+  if (crop.equalsIgnoreCase("tomato")) {
+    withinRange = (pHLevel >= 6.2 && pHLevel <= 6.8);
+  }
+  if (crop.equalsIgnoreCase("broccoli")) {
+    withinRange = (pHLevel >= 6.0 && pHLevel <= 6.8);
+  }
+  if (crop.equalsIgnoreCase("cucumber")) {
+    withinRange = (pHLevel >= 6.0 && pHLevel <= 6.8);
+  }
+  if (crop.equalsIgnoreCase("bellpepper")) {
+    withinRange = (pHLevel >= 6.5 && pHLevel <= 7.0);
+  }
+  // Add more crop pH ranges as needed
+  return withinRange;
+}
 
 void setup() {
   size(800, 600);
@@ -140,6 +401,7 @@ void setup() {
   font = createFont("Lucida Sans Regular", 16);
   textFont(font);
   textAlign(CENTER, CENTER);
+  textSize(20);
   pImageControl = loadImage("control.png");
   pImageTwistBody = loadImage("twistBody.png");
   pImageCalibration = loadImage("calibration.png");
@@ -148,18 +410,24 @@ void setup() {
   smooth();
   //HERE
   myPort = new Serial(this, "COM6", 9600);
-  myPort.bufferUntil('.'); 
+  myPort.bufferUntil('\n'); 
+  
+  int xOffset = 50;
+  int yOffset = 50;
+//  int graphWidth = width - xOffset * 2;
+//  int graphHeight = height - 300 - yOffset * 2;
   
   setControlP5();
 }
 
 void draw() {
-  background(backgroundColor);
+  background(backgroundColor); // Clear the background
+
+  noStroke();
   fill(globalTabColor);
   rect(0, tabHeight, width, globalTapHeight);
-  rect(0, height - tabHeight, width, tabHeight);
+
   fill(255, 255, 255);
-  text("Press Enter to visit Freenove.com", width / 2, height - tabHeight / 2);
 
   if (cp5.getTab("default").isActive()) {
     image(pImageControl, 0, tabHeight + globalTapHeight);
@@ -169,31 +437,62 @@ void draw() {
     image(pImageCalibration, 0, tabHeight + globalTapHeight);
   } else if (cp5.getTab("installation").isActive()) {
     image(pImageInstallation, 0, tabHeight + globalTapHeight);
-  }
-  //HERE
-  else if (cp5.getTab("Telemetry").isActive()) {
+  } else if (cp5.getTab("Telemetry").isActive()) {
     drawRadar();
     drawLine();
     drawObject();
     drawText();
-  }  
+  } else if (cp5.getTab("Sensors").isActive()) {
+    strokeWeight(1);
+    drawMoisture_pH();
+    }
   getVoltage();
   processEvent();
   
 }
 
 void serialEvent(Serial myPort) {
-  String data = myPort.readStringUntil('.');
-  if (data != null) {
-    data = data.substring(0, data.length() - 1);
-    int index1 = data.indexOf(",");
-    if (index1 != -1) {
-      angle = data.substring(0, index1);
-      distance = data.substring(index1 + 1);
-      iAngle = int(angle);
-      iDistance = int(distance);
-    }
+  
+  String data = myPort.readStringUntil('\n');
+  // data = moistureLevel,pHLevel,iAngle,iDistance
+  
+  if (data == null) {
+    println("data is null!");
+    return;
   }
+  
+  String[] parts = split(data, ',');
+  if (parts.length != 4) {
+    println("data is not formatted correctly " + data);
+  }
+  
+  moistureLevel = float(parts[0].trim());
+  pHLevel = float(parts[1].trim());
+  iAngle = int(parts[2].trim());
+  iDistance = int(parts[3].trim());
+ 
+  
+  //println(parts[0] + " " + parts[1] + " " + parts[2] + " " + parts[3]);
+  
+  // Add the new data point to the arrays
+  if (dataPointIndex < maxDataPoints) {
+    moistureData[dataPointIndex] = moistureLevel;
+    pHData[dataPointIndex] = pHLevel;
+    dataPointIndex++;
+  } else {
+    // Shift existing data points to make space for the new one
+    for (int i = 0; i < maxDataPoints - 1; i++) {
+      moistureData[i] = moistureData[i + 1];
+      pHData[i] = pHData[i + 1];
+    }
+    // Add the new data point at the end
+    moistureData[maxDataPoints - 1] = moistureLevel;
+    pHData[maxDataPoints - 1] = pHLevel;
+  }
+  
+  newData = true;
+  
+  return;
 }
 
 void getVoltage() {
@@ -202,6 +501,27 @@ void getVoltage() {
     textlabelVoltage.setText(String.valueOf(voltage) + "V");
     lastGetVoltage = millis();
   }
+}
+
+void keyPressed() {
+  if (keyCode >= 32 && keyCode <= 126 && crop.length() < 10) { // Only printable ASCII characters
+    // Restrict the length of the crop name to fit within the text box
+    crop += key;
+  } else if (keyCode == BACKSPACE && crop.length() > 0) { // Backspace to delete characters
+    crop = crop.substring(0, crop.length()-1);
+  }
+}
+
+boolean isNumeric(String str) {
+  if (str == null || str.length() == 0) {
+    return false;
+  }
+  try {
+    float d = Float.parseFloat(str);
+  } catch (NumberFormatException nfe) {
+    return false;
+  }
+  return true;
 }
 
 void setEvent(int id) {
@@ -250,6 +570,7 @@ void setControlP5TabTelemetry() {
   
 }
 
+
 void setControlP5Tab() {
   setControlP5TabGlobal();
 
@@ -257,7 +578,7 @@ void setControlP5Tab() {
     .setId(2)
     .setCaptionLabel("control")
     .setHeight(tabHeight)
-    .setWidth(tabWidth)
+    .setWidth(tabWidth-40)
     .activateEvent(true)
     .getCaptionLabel().align(CENTER, CENTER)
     ;
@@ -297,6 +618,14 @@ void setControlP5Tab() {
     .getCaptionLabel().align(CENTER, CENTER)
     ;
   setControlP5TabTelemetry();
+  
+  cp5.addTab("Sensors")
+    .setId(6)
+    .setHeight(tabHeight)
+    .setWidth(tabWidth-30)
+    .activateEvent(true)
+    .getCaptionLabel().align(CENTER, CENTER)
+    ;
 
 }
 
@@ -640,6 +969,7 @@ void setControlP5Key() {
       if (cp5.getTab("default").isActive()) {
         setEvent(202);
       } else if (cp5.getTab("calibration").isActive()) {
+        
         setEvent(403);
       }
     }
@@ -730,21 +1060,6 @@ void setControlP5Key() {
     }
   }
   , 'f');
-
-  // press Enter to visit website
-  cp5.mapKeyFor(new ControlKey() {
-    public void keyEvent() {
-      link("http://www.freenove.com");
-    }
-  }
-  , '\n');
-
-  cp5.mapKeyFor(new ControlKey() {
-    public void keyEvent() {
-      link("http://www.freenove.com");
-    }
-  }
-  , '\r');
 }
 
 public void controlEvent(ControlEvent theEvent) {
@@ -928,7 +1243,6 @@ public void processEvent(int id) {
     int zRotate = (int)cp5.getController("zRotate").getValue();
     if(xMoveLast != xMove || yMoveLast != yMove || zMoveLast != zMove || xRotateLast != xRotate || yRotateLast != yRotate || zRotateLast != zRotate)
       controlRobot.TwistBody(xMove, yMove, zMove, xRotate, yRotate, zRotate);
-      
     xMoveLast = xMove;
     yMoveLast = yMove;
     zMoveLast = zMove;
@@ -939,12 +1253,25 @@ public void processEvent(int id) {
     
     //HERE 
     case(400): 
-       while(iDistance > 20){
-          controlRobot.CrawlForward();
-          delay(2000); // Wait for 2 seconds
-          controlRobot.CrawlForward(); 
-          delay(2000); 
-       }
+    //delay can be varied currently delay(400)
+ while (true){
+    if (iDistance > 20) {
+        controlRobot.CrawlForward(); // Move forward continuously
+        delay(400); // Adjust delay as needed
+    }
+    else {
+        // Check left and right to choose direction with more space
+        if (iAngle >= 60 && iAngle <= 120) {
+            if (iAngle < 90) {
+                controlRobot.TurnLeft(); // Turn left if more space on the left side
+            }
+            else {
+                controlRobot.TurnRight(); // Turn right if more space on the right side
+            }
+            delay(400); // Adjust delay as needed
+        }
+    }
+}
     case(401):
       delay(2000); 
     case(402):
